@@ -27,10 +27,11 @@ module Language.Scheme.Lexer
 
 import Control.Monad (guard, void)
 import Data.Char (digitToInt, isAsciiLower, isAsciiUpper, isDigit)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Void (Void)
-import Language.Scheme.Number (SchemeNumber (..), mkRational, toExact, toInexact)
+import Language.Scheme.Number (SchemeNumber (..), mkComplex, mkRational, negateNum, toExact, toInexact)
 import Text.Megaparsec
 import Text.Megaparsec.Char
 
@@ -114,14 +115,31 @@ charLit = lexeme $ try (chunk "#\\") *> namedOrLiteral
                 _ -> fail "unknown character name"
 
 -- * Strings (report section 7.1.1)
+--
+-- R5RS itself specifies only @\\"@ and @\\\\@; the rest (@\\n@ @\\t@
+-- @\\r@ @\\a@ @\\b@) are a deliberate practical extension, matching what
+-- later reports and most real implementations support.
 
 stringLit :: Parser Text
 stringLit = lexeme $ char '"' *> (Text.pack <$> many stringChar) <* char '"'
   where
     stringChar = escaped <|> satisfy (\c -> c /= '"' && c /= '\\')
-    escaped = char '\\' *> (char '"' <|> char '\\')
+    escaped =
+        char '\\'
+            *> choice
+                [ '"' <$ char '"'
+                , '\\' <$ char '\\'
+                , '\n' <$ char 'n'
+                , '\t' <$ char 't'
+                , '\r' <$ char 'r'
+                , '\a' <$ char 'a'
+                , '\b' <$ char 'b'
+                ]
 
 -- * Numbers (report section 7.1.1)
+--
+-- Complex literals are rectangular form only (@3+4i@, @-i@, @1.0-2.5i@);
+-- polar form (@a\@b@) isn't supported.
 
 data Radix = Bin | Oct | Dec | Hex
 
@@ -141,7 +159,7 @@ numberLit = lexeme $ try $ do
     tags <- many (try tag)
     let radix = lastOr Dec [r | TagRadix r <- tags]
         exactness = lastOr' [e | TagExact e <- tags]
-    n <- signedReal radix
+    n <- try (pureImaginary radix) <|> (signedReal radix >>= \r -> try (complexSuffix radix r) <|> pure r)
     notFollowedBy (satisfy isSubsequent)
     pure $ case exactness of
         Nothing -> n
@@ -166,12 +184,26 @@ signedReal :: Radix -> Parser SchemeNumber
 signedReal radix = do
     neg <- option False (True <$ char '-' <|> False <$ char '+')
     n <- unsignedReal radix
-    pure $ if neg then negateNumber n else n
-  where
-    negateNumber = \case
-        ExactInteger i -> ExactInteger (negate i)
-        ExactRational r -> ExactRational (negate r)
-        InexactReal d -> InexactReal (negate d)
+    pure $ if neg then negateNum n else n
+
+-- | A complex number with no real part written out: @+i@, @-2.5i@, etc.
+-- Tried before a plain real number, since e.g. @+4i@ must not first be
+-- read as the real number @+4@ (leaving a stray @i@ behind).
+pureImaginary :: Radix -> Parser SchemeNumber
+pureImaginary radix = mkComplex (ExactInteger 0) <$> imaginarySuffix radix
+
+-- | The @(+|-) <ureal>? i@ tail of a complex literal that has an
+-- explicit real part, e.g. the @+4i@ in @3+4i@.
+complexSuffix :: Radix -> SchemeNumber -> Parser SchemeNumber
+complexSuffix radix realPart = mkComplex realPart <$> imaginarySuffix radix
+
+imaginarySuffix :: Radix -> Parser SchemeNumber
+imaginarySuffix radix = do
+    neg <- (True <$ char '-') <|> (False <$ char '+')
+    mag <- optional (unsignedReal radix)
+    _ <- char 'i'
+    let im = fromMaybe (ExactInteger 1) mag
+    pure $ if neg then negateNum im else im
 
 -- | Decimal points and exponents are only meaningful in radix 10; other
 -- radixes admit only integers and ratios.

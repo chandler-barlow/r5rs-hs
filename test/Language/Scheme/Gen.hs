@@ -14,7 +14,7 @@ import Hedgehog (MonadGen)
 import Hedgehog.Gen qualified as Gen
 import Hedgehog.Range qualified as Range
 import Language.Scheme.Datum (Datum (..), improperList, list)
-import Language.Scheme.Number (SchemeNumber (..), mkRational)
+import Language.Scheme.Number (SchemeNumber (..), mkComplex, mkRational)
 
 genSymbol :: MonadGen m => m Text
 genSymbol = Gen.choice [normalIdent, peculiar]
@@ -33,15 +33,25 @@ genSymbol = Gen.choice [normalIdent, peculiar]
 genChar :: MonadGen m => m Char
 genChar = Gen.choice [pure ' ', pure '\n', Gen.enum '!' '~']
 
+-- | Printable ASCII plus every character our string escapes cover, so
+-- the round-trip property actually exercises @renderString@\/@stringLit@
+-- agreeing on each one.
 genString :: MonadGen m => m Text
-genString = Gen.text (Range.linear 0 12) (Gen.choice [pure ' ', Gen.enum '!' '~'])
+genString = Gen.text (Range.linear 0 12) (Gen.choice [pure ' ', pure '\n', pure '\t', pure '\r', pure '\a', pure '\b', Gen.enum '!' '~'])
 
-genNumber :: MonadGen m => m SchemeNumber
-genNumber =
+genRealNumber :: MonadGen m => m SchemeNumber
+genRealNumber =
     Gen.choice
         [ ExactInteger <$> Gen.integral (Range.linearFrom 0 (-1_000_000) 1_000_000)
         , mkRational <$> Gen.integral (Range.linearFrom 0 (-1_000) 1_000) <*> Gen.integral (Range.linear 1 1_000)
         , InexactReal <$> Gen.double (Range.linearFracFrom 0 (-1.0e6) 1.0e6)
+        ]
+
+genNumber :: MonadGen m => m SchemeNumber
+genNumber =
+    Gen.choice
+        [ genRealNumber
+        , mkComplex <$> genRealNumber <*> genRealNumber
         ]
 
 genLeaf :: MonadGen m => m Datum

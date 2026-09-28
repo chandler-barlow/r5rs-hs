@@ -66,6 +66,7 @@ test-suite r5rs-hs-test
         Language.Scheme.Gen
         Language.Scheme.LexerTest
         Language.Scheme.MacroTest
+        Language.Scheme.NumberTowerTest
         Language.Scheme.ParserTest
     build-depends:
         base,

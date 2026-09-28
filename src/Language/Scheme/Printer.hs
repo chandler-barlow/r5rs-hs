@@ -31,8 +31,17 @@ renderPair a b = case b of
 renderNumber :: SchemeNumber -> Text
 renderNumber = \case
     ExactInteger n -> Text.pack (show n)
-    ExactRational r -> Text.pack (show (numerator r)) <> "/" <> Text.pack (show (denominator r))
+    ExactRational r -> renderExactRational r
     InexactReal d -> Text.pack (show d)
+    ExactComplex re im -> renderExactRational re <> renderSign im <> renderExactRational (abs im) <> "i"
+    InexactComplex re im -> Text.pack (show re) <> renderSign im <> Text.pack (show (abs im)) <> "i"
+  where
+    renderSign im = if im < 0 then "-" else "+"
+
+renderExactRational :: Rational -> Text
+renderExactRational r
+    | denominator r == 1 = Text.pack (show (numerator r))
+    | otherwise = Text.pack (show (numerator r)) <> "/" <> Text.pack (show (denominator r))
 
 renderChar :: Char -> Text
 renderChar = \case
@@ -45,4 +54,9 @@ renderString s = "\"" <> Text.concatMap escape s <> "\""
   where
     escape '"' = "\\\""
     escape '\\' = "\\\\"
+    escape '\n' = "\\n"
+    escape '\t' = "\\t"
+    escape '\r' = "\\r"
+    escape '\a' = "\\a"
+    escape '\b' = "\\b"
     escape c = Text.singleton c

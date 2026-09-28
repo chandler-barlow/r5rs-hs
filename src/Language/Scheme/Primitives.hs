@@ -32,14 +32,25 @@ primitiveTable =
     , ("quotient", primIntegerOp "quotient" quot)
     , ("remainder", primIntegerOp "remainder" rem)
     , ("modulo", primIntegerOp "modulo" mod)
-    , ("=", primCompare "=" (\a b -> compareNum a b == EQ))
-    , ("<", primCompare "<" (\a b -> compareNum a b == LT))
-    , (">", primCompare ">" (\a b -> compareNum a b == GT))
-    , ("<=", primCompare "<=" (\a b -> compareNum a b /= GT))
-    , (">=", primCompare ">=" (\a b -> compareNum a b /= LT))
-    , ("zero?", primNumPred (\n -> compareNum n (ExactInteger 0) == EQ))
-    , ("positive?", primNumPred (\n -> compareNum n (ExactInteger 0) == GT))
-    , ("negative?", primNumPred (\n -> compareNum n (ExactInteger 0) == LT))
+    , ("=", primNumEq)
+    , ("<", primRealCompare "<" (\a b -> compareNum a b == LT))
+    , (">", primRealCompare ">" (\a b -> compareNum a b == GT))
+    , ("<=", primRealCompare "<=" (\a b -> compareNum a b /= GT))
+    , (">=", primRealCompare ">=" (\a b -> compareNum a b /= LT))
+    , ("zero?", primNumPred (`numEqual` ExactInteger 0))
+    , ("positive?", primRealNumPred (\n -> compareNum n (ExactInteger 0) == GT))
+    , ("negative?", primRealNumPred (\n -> compareNum n (ExactInteger 0) == LT))
+    , ("exact?", primNumPred isExactNum)
+    , ("inexact?", primNumPred (not . isExactNum))
+    , ("complex?", primNumPred (const True))
+    , ("real?", primNumPred isRealNum)
+    , ("rational?", primNumPred isRationalNum)
+    , ("integer?", primNumPred isIntegerNum)
+    , ("exact->inexact", primNumConvert toInexact)
+    , ("inexact->exact", primNumConvert toExact)
+    , ("real-part", primNumConvert realPartOf)
+    , ("imag-part", primNumConvert imagPartOf)
+    , ("make-rectangular", primMakeRectangular)
     , ("cons", primCons)
     , ("car", primCar)
     , ("cdr", primCdr)
@@ -74,6 +85,13 @@ primitiveTable =
 requireNumber :: Value -> IO SchemeNumber
 requireNumber (Number n) = pure n
 requireNumber v = throwIO (WrongType "number" v)
+
+-- | Like 'requireNumber', but rejects complex numbers - for the
+-- ordering comparisons and predicates R5RS only defines over reals.
+requireRealNumber :: Value -> IO SchemeNumber
+requireRealNumber v = do
+    n <- requireNumber v
+    if isRealNum n then pure n else throwIO (WrongType "real number" v)
 
 arityError :: Text -> String -> [Value] -> IO a
 arityError name expected args = throwIO (ArityError name expected (length args))
@@ -112,17 +130,39 @@ primIntegerOp _ f [x, y] = do
     if b == 0 then throwIO DivideByZero else pure (Number (ExactInteger (f a b)))
 primIntegerOp name _ args = arityError name "exactly 2" args
 
-primCompare :: Text -> (SchemeNumber -> SchemeNumber -> Bool) -> [Value] -> IO Value
-primCompare _ _ [] = pure (Bool True)
-primCompare _ _ [_] = pure (Bool True)
-primCompare name cmp (x : y : rest) = do
+-- | @=@: numeric equality across the whole tower, including complex
+-- numbers (unlike the ordering comparisons below).
+primNumEq :: [Value] -> IO Value
+primNumEq [] = pure (Bool True)
+primNumEq [_] = pure (Bool True)
+primNumEq (x : y : rest) = do
     nx <- requireNumber x
     ny <- requireNumber y
-    if cmp nx ny then primCompare name cmp (y : rest) else pure (Bool False)
+    if numEqual nx ny then primNumEq (y : rest) else pure (Bool False)
+
+primRealCompare :: Text -> (SchemeNumber -> SchemeNumber -> Bool) -> [Value] -> IO Value
+primRealCompare _ _ [] = pure (Bool True)
+primRealCompare _ _ [_] = pure (Bool True)
+primRealCompare name cmp (x : y : rest) = do
+    nx <- requireRealNumber x
+    ny <- requireRealNumber y
+    if cmp nx ny then primRealCompare name cmp (y : rest) else pure (Bool False)
 
 primNumPred :: (SchemeNumber -> Bool) -> [Value] -> IO Value
 primNumPred p [v] = Bool . p <$> requireNumber v
 primNumPred _ args = arityError "numeric predicate" "exactly 1" args
+
+primRealNumPred :: (SchemeNumber -> Bool) -> [Value] -> IO Value
+primRealNumPred p [v] = Bool . p <$> requireRealNumber v
+primRealNumPred _ args = arityError "numeric predicate" "exactly 1" args
+
+primNumConvert :: (SchemeNumber -> SchemeNumber) -> [Value] -> IO Value
+primNumConvert f [v] = Number . f <$> requireNumber v
+primNumConvert _ args = arityError "numeric conversion" "exactly 1" args
+
+primMakeRectangular :: [Value] -> IO Value
+primMakeRectangular [re, im] = Number <$> (mkComplex <$> requireRealNumber re <*> requireRealNumber im)
+primMakeRectangular args = arityError "make-rectangular" "exactly 2" args
 
 primCons :: [Value] -> IO Value
 primCons [a, b] = pure (Pair a b)
