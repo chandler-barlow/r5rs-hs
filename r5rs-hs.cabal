@@ -1,0 +1,72 @@
+cabal-version:      3.0
+name:               r5rs-hs
+version:            0.1.0.0
+synopsis:           A bare-bones, embeddable R5RS Scheme interpreter
+license:            MIT
+license-file:       LICENSE
+author:             Chandler Barlow
+maintainer:         chandlerbrlw@gmail.com
+build-type:         Simple
+
+common warnings
+    ghc-options: -Wall
+
+library
+    import:             warnings
+    default-language:   GHC2021
+    default-extensions:
+        DerivingStrategies
+        LambdaCase
+        OverloadedStrings
+    hs-source-dirs:     src
+    exposed-modules:
+        Language.Scheme
+        Language.Scheme.Datum
+        Language.Scheme.Eval
+        Language.Scheme.Lexer
+        Language.Scheme.Number
+        Language.Scheme.Parser
+        Language.Scheme.Primitives
+        Language.Scheme.Printer
+        Language.Scheme.Value
+    build-depends:
+        base       >=4.18 && <5,
+        containers,
+        megaparsec >=9    && <10,
+        text
+
+executable r5rs-hs-parse
+    import:             warnings
+    default-language:   GHC2021
+    default-extensions:
+        LambdaCase
+        OverloadedStrings
+    hs-source-dirs:     app
+    main-is:            Main.hs
+    build-depends:
+        base,
+        r5rs-hs,
+        text
+
+test-suite r5rs-hs-test
+    import:             warnings
+    default-language:   GHC2021
+    default-extensions:
+        DerivingStrategies
+        LambdaCase
+        OverloadedStrings
+        TemplateHaskell
+    type:               exitcode-stdio-1.0
+    hs-source-dirs:     test
+    main-is:            Main.hs
+    other-modules:
+        Language.Scheme.EvalTest
+        Language.Scheme.Gen
+        Language.Scheme.LexerTest
+        Language.Scheme.ParserTest
+    build-depends:
+        base,
+        hedgehog,
+        megaparsec,
+        r5rs-hs,
+        text
