@@ -2,8 +2,10 @@ module Main (main) where
 
 import Hedgehog (checkParallel)
 import Hedgehog.Main (defaultMain)
+import Language.Scheme.CallCCTest qualified as CallCCTest
 import Language.Scheme.EvalTest qualified as EvalTest
 import Language.Scheme.LexerTest qualified as LexerTest
+import Language.Scheme.MacroTest qualified as MacroTest
 import Language.Scheme.ParserTest qualified as ParserTest
 
 main :: IO ()
@@ -12,4 +14,6 @@ main =
         [ checkParallel LexerTest.tests
         , checkParallel ParserTest.tests
         , checkParallel EvalTest.tests
+        , checkParallel MacroTest.tests
+        , checkParallel CallCCTest.tests
         ]

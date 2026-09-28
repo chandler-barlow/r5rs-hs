@@ -12,6 +12,14 @@
 --   exist. Only variable bindings (via @set!@) are mutable.
 -- * There's no object-identity model, so @eq?@, @eqv?@, and @equal?@ all
 --   perform the same deep structural comparison ('valueEqual').
+-- * @call/cc@ only supports escape (upward, one-shot) continuations, via
+--   'ContinuationInvoked' - not full re-entrant\/multi-shot ones. A
+--   continuation stays valid only while its @call/cc@ call is still on
+--   the stack; invoking it after that raises an error instead of
+--   resuming.
+-- * @syntax-rules@ (in "Language.Scheme.Macro") is unhygienic: a
+--   template-introduced binding can capture a same-named identifier from
+--   the macro's use site.
 module Language.Scheme.Value
     ( Value (..)
     , Env
@@ -58,6 +66,13 @@ data Value
         , closureName :: Maybe Text
         }
     | Primitive Text ([Value] -> IO Value)
+    | -- | A @syntax-rules@ transformer: literal identifiers, then
+      -- (pattern, template) rules tried in order. See
+      -- "Language.Scheme.Macro" - deliberately unhygienic.
+      Macro [Text] [(D.Datum, D.Datum)]
+    | -- | An escape-only continuation, tagged for 'ContinuationInvoked'
+      -- to find its matching @call/cc@ frame. See the module haddock.
+      Continuation Int
 
 instance Show Value where
     show = Text.unpack . writeValue
@@ -111,6 +126,15 @@ data SchemeError
     | DivideByZero
     | SyntaxError Text
     | UserError Text [Value]
+    | -- | Thrown when a captured continuation is invoked (see
+      -- 'Continuation'). A @call/cc@ frame catches this and returns the
+      -- carried value when the tag is its own; otherwise it re-throws,
+      -- letting the exception unwind past intervening frames to the one
+      -- that captured it. If it escapes 'interpret' entirely, the
+      -- continuation was invoked outside its dynamic extent - this
+      -- implementation only supports escape (upward, one-shot)
+      -- continuations, not full re-entrant ones.
+      ContinuationInvoked Int Value
     deriving stock (Show, Eq)
 
 instance Exception SchemeError
@@ -138,6 +162,7 @@ valueEqual a b = case (a, b) of
     (Unspecified, Unspecified) -> True
     (Pair x1 y1, Pair x2 y2) -> valueEqual x1 x2 && valueEqual y1 y2
     (Vector xs, Vector ys) -> length xs == length ys && and (zipWith valueEqual xs ys)
+    (Continuation x, Continuation y) -> x == y
     _ -> False
 
 -- | A quoted (or self-evaluating) datum, taken as literal data.
@@ -167,6 +192,8 @@ writeValue = \case
     Closure {closureName = Just n} -> "#<procedure:" <> n <> ">"
     Closure {closureName = Nothing} -> "#<procedure>"
     Primitive name _ -> "#<procedure:" <> name <> ">"
+    Macro {} -> "#<macro>"
+    Continuation _ -> "#<continuation>"
 
 writePair :: Value -> Value -> Text
 writePair a b = case b of

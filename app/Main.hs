@@ -19,5 +19,5 @@ main = do
             result <- try (interpret env src)
             case result of
                 Left err -> putStrLn (displayException (err :: SchemeError)) *> exitFailure
-                Right values -> mapM_ print values
+                Right values -> mapM_ print (filter (/= Unspecified) values)
         _ -> putStrLn "usage: r5rs-hs-parse <file.scm>" *> exitFailure

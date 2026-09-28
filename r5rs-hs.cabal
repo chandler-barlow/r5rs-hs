@@ -24,6 +24,7 @@ library
         Language.Scheme.Datum
         Language.Scheme.Eval
         Language.Scheme.Lexer
+        Language.Scheme.Macro
         Language.Scheme.Number
         Language.Scheme.Parser
         Language.Scheme.Primitives
@@ -60,9 +61,11 @@ test-suite r5rs-hs-test
     hs-source-dirs:     test
     main-is:            Main.hs
     other-modules:
+        Language.Scheme.CallCCTest
         Language.Scheme.EvalTest
         Language.Scheme.Gen
         Language.Scheme.LexerTest
+        Language.Scheme.MacroTest
         Language.Scheme.ParserTest
     build-depends:
         base,

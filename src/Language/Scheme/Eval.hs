@@ -14,6 +14,7 @@ import Control.Monad (foldM, zipWithM_)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Language.Scheme.Datum qualified as D
+import Language.Scheme.Macro (expandMacro, parseSyntaxRules)
 import Language.Scheme.Value
 
 -- | Either a finished value, or a next expression/environment to
@@ -74,6 +75,17 @@ step1 env = \case
     D.Pair (D.Symbol "and") exprs -> requireProperList "and" exprs >>= evalAnd env
     D.Pair (D.Symbol "or") exprs -> requireProperList "or" exprs >>= evalOr env
     D.Pair (D.Symbol "quasiquote") (D.Pair d D.Nil) -> Done <$> evalQuasiquote env 1 d
+    D.Pair (D.Symbol "define-syntax") (D.Pair (D.Symbol name) (D.Pair rulesExpr D.Nil)) -> do
+        macro <- parseSyntaxRules rulesExpr
+        Done Unspecified <$ defineVar env name macro
+    D.Pair (D.Symbol name) args -> do
+        mv <- lookupVar env name
+        case mv of
+            Just (Macro literals rules) -> Tail env <$> expandMacro name literals rules args
+            Just fv -> do
+                argv <- requireProperList "procedure call" args >>= traverse (eval env)
+                applyStep fv argv
+            Nothing -> throwIO (UnboundVariable name)
     D.Pair f args -> do
         fv <- eval env f
         argv <- requireProperList "procedure call" args >>= traverse (eval env)
@@ -86,6 +98,10 @@ applyStep fv argv = case fv of
         callEnv <- childEnv cenv
         bindParams (fromMaybe "#<anonymous>" name) params rst argv callEnv
         tailSequence callEnv body
+    Continuation tag -> case argv of
+        [] -> throwIO (ContinuationInvoked tag Unspecified)
+        [v] -> throwIO (ContinuationInvoked tag v)
+        _ -> throwIO (ArityError "continuation" "at most 1" (length argv))
     _ -> throwIO (NotApplicable fv)
 
 bindParams :: Text -> [Text] -> Maybe Text -> [Value] -> Env -> IO ()

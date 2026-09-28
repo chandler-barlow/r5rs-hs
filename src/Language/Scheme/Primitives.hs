@@ -7,11 +7,12 @@ module Language.Scheme.Primitives
     ( newGlobalEnv
     ) where
 
-import Control.Exception (throwIO)
+import Control.Exception (catch, throwIO)
 import Control.Monad (foldM)
 import Data.List (transpose)
 import Data.Text (Text)
 import Data.Text.IO qualified as TIO
+import Data.Unique (hashUnique, newUnique)
 import Language.Scheme.Eval (apply)
 import Language.Scheme.Number
 import Language.Scheme.Value
@@ -66,6 +67,8 @@ primitiveTable =
     , ("write", primWrite)
     , ("newline", primNewline)
     , ("error", primError)
+    , ("call/cc", primCallCC)
+    , ("call-with-current-continuation", primCallCC)
     ]
 
 requireNumber :: Value -> IO SchemeNumber
@@ -195,6 +198,7 @@ isBool (Bool _) = True
 isBool _ = False
 isProcedure (Closure {}) = True
 isProcedure (Primitive _ _) = True
+isProcedure (Continuation _) = True
 isProcedure _ = False
 isVector (Vector _) = True
 isVector _ = False
@@ -219,3 +223,18 @@ primError :: [Value] -> IO Value
 primError (String msg : irritants) = throwIO (UserError msg irritants)
 primError (v : _) = throwIO (WrongType "string" v)
 primError [] = arityError "error" "at least 1" []
+
+-- | Escape-only @call/cc@: tags a fresh 'Continuation', calls @f@ with
+-- it, and catches the matching 'ContinuationInvoked' thrown when (if)
+-- that continuation gets applied - anywhere in @f@'s dynamic extent,
+-- including from inside nested calls. A non-matching tag (a
+-- continuation captured by an /enclosing/ call\/cc) is re-thrown so it
+-- keeps unwinding to its own frame; other 'SchemeError's pass through
+-- untouched. See "Language.Scheme.Value" for what this doesn't support.
+primCallCC :: [Value] -> IO Value
+primCallCC [f] = do
+    tag <- hashUnique <$> newUnique
+    apply f [Continuation tag] `catch` \e -> case e of
+        ContinuationInvoked tag' v | tag' == tag -> pure v
+        _ -> throwIO e
+primCallCC args = arityError "call/cc" "exactly 1" args
